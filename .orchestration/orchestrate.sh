@@ -10,9 +10,41 @@
 #   10=MIR (Master), 11=WebScraper, 12=CodeAnalyzer
 #   20=ROY (Master), 21=TestWriter, 22=Debugger
 
-WORKSPACE="/Users/roysmac/Dev"
-AGENTS_DIR="$WORKSPACE/.orchestration/agents"
-ITERM_PROFILE="Roy's Agents"
+# Auto-detect workspace directory (where this script is located)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+WORKSPACE="$(dirname "$SCRIPT_DIR")"
+AGENTS_DIR="$SCRIPT_DIR/agents"
+
+# iTerm profile - change this to your iTerm profile name, or use "Default"
+ITERM_PROFILE="${ITERM_PROFILE:-Default}"
+
+# Check prerequisites
+check_prerequisites() {
+    local missing=()
+    
+    if ! command -v tmux &> /dev/null; then
+        missing+=("tmux (brew install tmux)")
+    fi
+    
+    if ! command -v gemini &> /dev/null; then
+        missing+=("gemini CLI (npm install -g @anthropic/gemini-cli)")
+    fi
+    
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "⚠️  Missing prerequisites:"
+        for item in "${missing[@]}"; do
+            echo "   - $item"
+        done
+        echo ""
+        echo "Please install the missing tools and try again."
+        exit 1
+    fi
+}
+
+create_agent_dirs() {
+    echo "Creating agent directories if not exist..."
+    mkdir -p "$AGENTS_DIR"/{10-mir,11-webscraper,12-codeanalyzer,20-roy,21-testwriter,22-debugger}
+}
 
 create_tmux_sessions() {
     echo "Creating tmux sessions for all agents..."
@@ -44,7 +76,7 @@ create_tmux_sessions() {
 }
 
 open_iterm_windows() {
-    echo "Opening iTerm windows..."
+    echo "Opening iTerm windows with profile: $ITERM_PROFILE"
     
     osascript <<EOF
 tell application "iTerm"
@@ -148,12 +180,17 @@ print_help() {
     echo ""
     echo "Examples:"
     echo "  $0 start"
-    echo "  $0 send 10 'BMAD 리포지토리 분석해줘'"
-    echo "  $0 send 20 '웹사이트 만들어줘'"
+    echo "  $0 send 10 'Analyze a repository'"
+    echo "  $0 send 20 'Build a web app'"
+    echo ""
+    echo "Environment Variables:"
+    echo "  ITERM_PROFILE  iTerm profile name (default: Default)"
 }
 
 case "$1" in
     start)
+        check_prerequisites
+        create_agent_dirs
         create_tmux_sessions
         sleep 2
         open_iterm_windows
