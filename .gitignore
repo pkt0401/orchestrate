@@ -1,6 +1,7 @@
 # Logs
 *.log
 watcher_debug.log
+.env
 
 # Dependencies
 node_modules/

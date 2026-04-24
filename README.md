@@ -101,6 +101,13 @@ chmod +x .orchestration/orchestrate.sh
 ./.orchestration/orchestrate.sh send 20 "대시보드 만들어줘"
 ```
 
+### 6. Python으로 실행
+
+```bash
+# 사용 예시: python orchestrate.py "작업"
+python orchestrate.py "대시보드 만들어줘"
+```
+
 ## 📁 Directory Structure
 
 ```

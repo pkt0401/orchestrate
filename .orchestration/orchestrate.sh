@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/bash
 # B:Essential Multi-Agent Orchestration System v8 (Final)
 # 
 # Architecture:
@@ -9,6 +9,7 @@
 # Agent Registry:
 #   10=MIR (Master), 11=WebScraper, 12=CodeAnalyzer
 #   20=ROY (Master), 21=TestWriter, 22=Debugger
+#   30=CLAUDE (Claude Code — real file edits, refactoring, debugging)
 
 # Auto-detect workspace directory (where this script is located)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -27,9 +28,13 @@ check_prerequisites() {
     fi
     
     if ! command -v gemini &> /dev/null; then
-        missing+=("gemini CLI (npm install -g @anthropic/gemini-cli)")
+        missing+=("gemini CLI (npm install -g @google/gemini-cli)")
     fi
-    
+
+    if ! command -v claude &> /dev/null; then
+        missing+=("claude CLI (npm install -g @anthropic-ai/claude-code)")
+    fi
+
     if [[ ${#missing[@]} -gt 0 ]]; then
         echo "⚠️  Missing prerequisites:"
         for item in "${missing[@]}"; do
@@ -43,92 +48,68 @@ check_prerequisites() {
 
 create_agent_dirs() {
     echo "Creating agent directories if not exist..."
-    mkdir -p "$AGENTS_DIR"/{10-mir,11-webscraper,12-codeanalyzer,20-roy,21-testwriter,22-debugger}
+    mkdir -p "$AGENTS_DIR"/{10-mir,11-webscraper,12-codeanalyzer,20-roy,21-testwriter,22-debugger,30-claude}
 }
 
 create_tmux_sessions() {
     echo "Creating tmux sessions for all agents..."
     
-    # Agent configurations: ID:DIR:NAME
+    # Agent configurations: ID:DIR:NAME:CLI
     local agents=(
-        "10:10-mir:MIR Master Agent"
-        "11:11-webscraper:WebScraper"
-        "12:12-codeanalyzer:CodeAnalyzer"
-        "20:20-roy:ROY Master Agent"
-        "21:21-testwriter:TestWriter"
-        "22:22-debugger:Debugger"
+        "10:10-mir:MIR Master Agent:gemini"
+        "11:11-webscraper:WebScraper:gemini"
+        "12:12-codeanalyzer:CodeAnalyzer:gemini"
+        "20:20-roy:ROY Master Agent:gemini"
+        "21:21-testwriter:TestWriter:gemini"
+        "22:22-debugger:Debugger:gemini"
+        "30:30-claude:CLAUDE Code Agent:claude --dangerously-skip-permissions"
     )
-    
+
     for agent in "${agents[@]}"; do
-        IFS=':' read -r id dir_name display_name <<< "$agent"
-        
+        IFS=':' read -r id dir_name display_name cli <<< "$agent"
+
         # Kill existing session if exists
         tmux kill-session -t "$id" 2>/dev/null
-        
+
         # Create new session with correct working directory
         tmux new-session -d -s "$id" -c "$AGENTS_DIR/$dir_name"
-        tmux send-keys -t "$id" "clear && echo '[$id] $display_name' && echo 'Path: \$(pwd)' && echo '' && gemini" Enter
-        
-        echo "  [$id] $display_name"
+        tmux send-keys -t "$id" "clear && echo '[$id] $display_name' && echo -n 'Path: ' && pwd && echo '' && $cli" Enter
+
+        echo "  [$id] $display_name ($cli)"
     done
-    
-    echo "All 6 tmux sessions created!"
+
+    echo "All 7 tmux sessions created!"
 }
 
 open_iterm_windows() {
-    echo "Opening iTerm windows with profile: $ITERM_PROFILE"
-    
-    osascript <<EOF
-tell application "iTerm"
-    activate
-    
-    -- MIR Team Window
-    create window with profile "$ITERM_PROFILE"
-    set mirWindow to current window
-    
-    tell current session of mirWindow
-        set name to "10-MIR"
-        write text "tmux attach -t 10"
-    end tell
-    
-    tell mirWindow to create tab with profile "$ITERM_PROFILE"
-    tell current session of mirWindow
-        set name to "11-WebScraper"
-        write text "tmux attach -t 11"
-    end tell
-    
-    tell mirWindow to create tab with profile "$ITERM_PROFILE"
-    tell current session of mirWindow
-        set name to "12-CodeAnalyzer"
-        write text "tmux attach -t 12"
-    end tell
-    
-    delay 1
-    
-    -- ROY Team Window
-    create window with profile "$ITERM_PROFILE"
-    set royWindow to current window
-    
-    tell current session of royWindow
-        set name to "20-ROY"
-        write text "tmux attach -t 20"
-    end tell
-    
-    tell royWindow to create tab with profile "$ITERM_PROFILE"
-    tell current session of royWindow
-        set name to "21-TestWriter"
-        write text "tmux attach -t 21"
-    end tell
-    
-    tell royWindow to create tab with profile "$ITERM_PROFILE"
-    tell current session of royWindow
-        set name to "22-Debugger"
-        write text "tmux attach -t 22"
-    end tell
-end tell
-EOF
-    
-    echo "iTerm windows opened!"
+    # WSL2/Linux: iTerm2 unavailable. Create a tmux 'view' session with 6 windows.
+    echo "Opening tmux view session (WSL2 mode)..."
+
+    tmux kill-session -t orchestra 2>/dev/null
+
+    # Create view session: 6 windows, each attaching to an agent session
+    tmux new-session -d -s orchestra -n "10-MIR"
+    tmux send-keys -t orchestra:10-MIR "tmux attach -t 10" Enter
+
+    for entry in "11-WebScraper 11" "12-CodeAnalyzer 12" "20-ROY 20" "21-TestWriter 21" "22-Debugger 22" "30-CLAUDE 30"; do
+        win=$(echo "$entry" | cut -d' ' -f1)
+        id=$(echo "$entry" | cut -d' ' -f2)
+        tmux new-window -t orchestra -n "$win"
+        tmux send-keys -t "orchestra:$win" "tmux attach -t $id" Enter
+    done
+
+    echo ""
+    echo "====================================="
+    echo " tmux 'orchestra' session is ready!"
+    echo "====================================="
+    echo ""
+    echo "  Attach:          tmux attach -t orchestra"
+    echo "  Switch windows:  Ctrl+b  (next/prev: n/p, or 0-5)"
+    echo ""
+    echo "  Or attach each agent directly:"
+    echo "    tmux attach -t 10   # MIR"
+    echo "    tmux attach -t 20   # ROY"
+    echo "    tmux attach -t 30   # CLAUDE"
 }
 
 send_message() {
@@ -138,8 +119,8 @@ send_message() {
     
     # Validate agent ID
     case $id in
-        10|11|12|20|21|22) ;;
-        *) echo "Error: Unknown agent ID: $id"; echo "Valid IDs: 10, 11, 12, 20, 21, 22"; exit 1 ;;
+        10|11|12|20|21|22|30) ;;
+        *) echo "Error: Unknown agent ID: $id"; echo "Valid IDs: 10, 11, 12, 20, 21, 22, 30"; exit 1 ;;
     esac
     
     # Send message first, then Enter separately (proven reliable method)
@@ -152,7 +133,7 @@ send_message() {
 
 kill_all() {
     echo "Killing all tmux sessions..."
-    for id in 10 11 12 20 21 22; do
+    for id in 10 11 12 20 21 22 30; do
         tmux kill-session -t "$id" 2>/dev/null
     done
     echo "Done!"
@@ -169,7 +150,7 @@ print_help() {
     echo "Usage: $0 <command> [args]"
     echo ""
     echo "Commands:"
-    echo "  start       Launch all 6 agents (tmux + iTerm)"
+    echo "  start       Launch all 7 agents (tmux + iTerm)"
     echo "  send <ID> <message>  Send message to agent"
     echo "  status      Show running tmux sessions"
     echo "  kill        Kill all tmux sessions"
@@ -177,11 +158,13 @@ print_help() {
     echo "Agent IDs:"
     echo "  10=MIR, 11=WebScraper, 12=CodeAnalyzer"
     echo "  20=ROY, 21=TestWriter, 22=Debugger"
+    echo "  30=CLAUDE (Claude Code — real file edits)"
     echo ""
     echo "Examples:"
     echo "  $0 start"
     echo "  $0 send 10 'Analyze a repository'"
     echo "  $0 send 20 'Build a web app'"
+    echo "  $0 send 30 'Refactor orchestrate.py to use async'"
     echo ""
     echo "Environment Variables:"
     echo "  ITERM_PROFILE  iTerm profile name (default: Default)"
